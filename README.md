@@ -8,7 +8,7 @@ Underneath it, a custom data pipeline ingests and transforms the data through a 
 
 ## Architecture
 
-![Architecture Diagram](images/Architecture_Image.png)
+![Architecture Diagram](Images/Architecture_Image.png)
 
 **Bronze layer** — raw data ingested as is from three sources:
 - **EIA** electricity retail prices (all sectors, monthly, 2020–2026, all states).
