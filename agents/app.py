@@ -1,0 +1,166 @@
+import os
+from pathlib import Path
+
+import streamlit as st
+import pandas as pd
+import plotly.express as px
+from dotenv import load_dotenv
+from databricks import sql
+import anthropic
+
+env_path = Path(__file__).resolve().parent.parent / ".env"
+load_dotenv(dotenv_path=env_path, override=True)
+
+DATABRICKS_HOST = os.getenv("DATABRICKS_HOST")
+DATABRICKS_HTTP_PATH = os.getenv("DATABRICKS_HTTP_PATH")
+DATABRICKS_SQL_TOKEN = os.getenv("DATABRICKS_SQL_TOKEN")
+ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
+
+client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+
+st.set_page_config(page_title="Energy Intelligence Assistant", layout="wide")
+st.title("⚡ Energy Intelligence Assistant")
+st.write("Ask questions about electricity prices, weather, and generation across all 50 states.")
+
+SCHEMA_DESCRIPTION = """
+Table: gold_monthly_state_summary
+
+Columns:
+- state (string): 2-letter US state code, e.g. 'TX', 'CA'
+- year (integer): e.g. 2023
+- month (integer): 1-12
+- price (decimal): average electricity price, all sectors combined, cents per kWh
+- price_units (string): unit description for price
+- price_residential (decimal): residential electricity price, cents per kWh
+- price_commercial (decimal): commercial electricity price, cents per kWh
+- price_industrial (decimal): industrial electricity price, cents per kWh
+- price_transportation (decimal): transportation electricity price, cents per kWh
+- price_other (decimal): other sector electricity price, cents per kWh
+- avg_temp_max_f (decimal): average daily high temperature, Fahrenheit
+- avg_temp_min_f (decimal): average daily low temperature, Fahrenheit
+- avg_temp_f (decimal): average daily temperature, Fahrenheit
+- highest_temp_f (decimal): hottest single day that month, Fahrenheit
+- lowest_temp_f (decimal): coldest single day that month, Fahrenheit
+- total_precipitation_inches (decimal): total precipitation for the month, inches
+- total_snowfall_inches (decimal): total snowfall for the month, inches
+- avg_wind_speed_mph (decimal): average wind speed, mph
+- days_with_precipitation (integer): count of days with measurable precipitation
+- days_with_snow (integer): count of days with measurable snowfall
+- generation_natural_gas (decimal): electricity generated from natural gas, thousand megawatthours
+- generation_coal (decimal): electricity generated from coal, thousand megawatthours
+- generation_nuclear (decimal): electricity generated from nuclear, thousand megawatthours
+- generation_solar (decimal): electricity generated from solar, thousand megawatthours
+- generation_wind (decimal): electricity generated from wind, thousand megawatthours
+- generation_hydro (decimal): electricity generated from hydroelectric, thousand megawatthours
+
+This table has one row per state per month from January 2020 through mid-2026.
+"""
+
+
+def generate_sql(question):
+    prompt = f"""You are a SQL expert. Given the table schema below, write a SQL query to answer the user's question.
+
+{SCHEMA_DESCRIPTION}
+
+Rules:
+- Only output the SQL query, nothing else. No explanation, no markdown formatting, no backticks.
+- Use standard SQL compatible with Databricks SQL.
+- Always limit results to a reasonable number of rows (e.g. LIMIT 100) unless the question requires aggregation.
+
+Question: {question}
+
+SQL Query:"""
+
+    response = client.messages.create(
+        model="claude-sonnet-4-6",
+        max_tokens=500,
+        messages=[{"role": "user", "content": prompt}]
+    )
+    return response.content[0].text.strip()
+
+
+def decide_chart_type(question, df):
+    """Ask Claude whether/how to visualize the results."""
+    prompt = f"""Given this user question and the resulting data columns, decide the best way to visualize it.
+
+Question: {question}
+Columns: {list(df.columns)}
+Number of rows: {len(df)}
+
+Respond with ONLY one of these options, nothing else:
+- "none" (if a table is better, e.g. single row or single value)
+- "line:<x_column>:<y_column>" (for trends over time, e.g. line:month:price)
+- "bar:<x_column>:<y_column>" (for comparisons across categories, e.g. bar:state:price)
+
+Your answer:"""
+
+    response = client.messages.create(
+        model="claude-sonnet-4-6",
+        max_tokens=50,
+        messages=[{"role": "user", "content": prompt}]
+    )
+    return response.content[0].text.strip()
+
+
+def render_chart(chart_instruction, df):
+    if chart_instruction == "none" or ":" not in chart_instruction:
+        return False
+
+    chart_type, x_col, y_col = chart_instruction.split(":")
+
+    if x_col not in df.columns or y_col not in df.columns:
+        return False
+
+    if chart_type == "line":
+        fig = px.line(df, x=x_col, y=y_col, markers=True)
+    elif chart_type == "bar":
+        fig = px.bar(df, x=x_col, y=y_col)
+    else:
+        return False
+
+    st.plotly_chart(fig, use_container_width=True)
+    return True
+
+
+def run_query(sql_query):
+    connection = sql.connect(
+        server_hostname=DATABRICKS_HOST,
+        http_path=DATABRICKS_HTTP_PATH,
+        access_token=DATABRICKS_SQL_TOKEN,
+    )
+    cursor = connection.cursor()
+    cursor.execute(sql_query)
+    columns = [desc[0] for desc in cursor.description]
+    rows = cursor.fetchall()
+    cursor.close()
+    connection.close()
+    return columns, rows
+
+
+question = st.text_input("Ask a question:", placeholder="What was the average electricity price in Texas in 2023?")
+
+if st.button("Ask"):
+    if question:
+        with st.spinner("Generating SQL..."):
+            generated_sql = generate_sql(question)
+
+        st.code(generated_sql, language="sql")
+
+        try:
+            with st.spinner("Running query..."):
+                columns, rows = run_query(generated_sql)
+
+            df = pd.DataFrame(rows, columns=columns)
+
+            st.write("Results:")
+            st.dataframe(df)
+
+            if len(df) > 1:
+                with st.spinner("Deciding how to visualize..."):
+                    chart_instruction = decide_chart_type(question, df)
+                render_chart(chart_instruction, df)
+
+        except Exception as e:
+            st.error(f"Query failed: {e}")
+    else:
+        st.warning("Please enter a question.")
