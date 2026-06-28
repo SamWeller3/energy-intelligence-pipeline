@@ -38,7 +38,7 @@ Columns:
 - price_other (decimal): other sector electricity price, cents per kWh
 - avg_temp_max_f (decimal): average daily high temperature, Fahrenheit
 - avg_temp_min_f (decimal): average daily low temperature, Fahrenheit
-- avg_temp_f (decimal): average daily temperature, Fahrenheit
+- avg_temp_f (decimal): average daily temperature, Fahrenheit (NOAA-reported value if available, otherwise derived from max/min)
 - highest_temp_f (decimal): hottest single day that month, Fahrenheit
 - lowest_temp_f (decimal): coldest single day that month, Fahrenheit
 - total_precipitation_inches (decimal): total precipitation for the month, inches
@@ -66,6 +66,8 @@ Rules:
 - Only output the SQL query, nothing else. No explanation, no markdown formatting, no backticks.
 - Use standard SQL compatible with Databricks SQL.
 - Always limit results to a reasonable number of rows (e.g. LIMIT 100) unless the question requires aggregation.
+- If the question asks about correlation, relationship, or whether two things are related, use the CORR() aggregate function to compute an actual correlation coefficient between the two relevant numeric columns, rather than just selecting raw rows. Return the correlation as its own named column (e.g. CORR(avg_temp_f, price) AS correlation_coefficient), grouped appropriately if the question implies a breakdown (e.g. by state), or as a single value if it's an overall question.
+- Also include the underlying raw columns used in the correlation (e.g. avg_temp_f, price) so the data can still be charted as a scatter plot.
 
 Question: {question}
 
@@ -91,6 +93,7 @@ Respond with ONLY one of these options, nothing else:
 - "none" (if a table is better, e.g. single row or single value)
 - "line:<x_column>:<y_column>" (for trends over time, e.g. line:month:price)
 - "bar:<x_column>:<y_column>" (for comparisons across categories, e.g. bar:state:price)
+- "scatter:<x_column>:<y_column>" (for relationships/correlations between two numeric variables)
 
 Your answer:"""
 
@@ -115,11 +118,35 @@ def render_chart(chart_instruction, df):
         fig = px.line(df, x=x_col, y=y_col, markers=True)
     elif chart_type == "bar":
         fig = px.bar(df, x=x_col, y=y_col)
+    elif chart_type == "scatter":
+        fig = px.scatter(df, x=x_col, y=y_col)
     else:
         return False
 
     st.plotly_chart(fig, use_container_width=True)
     return True
+
+
+def interpret_results(question, df):
+    """Ask Claude to explain the results in plain English."""
+    sample = df.head(20).to_string()
+    prompt = f"""A user asked: "{question}"
+
+Here is a sample of the SQL query results (showing up to 20 rows of {len(df)} total):
+
+{sample}
+
+Write a short, direct, plain-English answer to their question based on this data.
+- If the results include a correlation coefficient column, state its value and describe the strength and direction (e.g. weak positive, strong negative).
+- If no correlation coefficient is present but the question asks about a relationship, describe the pattern you observe in the sample.
+- Keep it to 2-4 sentences. Do not repeat the question back. Do not add disclaimers about needing more data."""
+
+    response = client.messages.create(
+        model="claude-sonnet-4-6",
+        max_tokens=300,
+        messages=[{"role": "user", "content": prompt}]
+    )
+    return response.content[0].text.strip()
 
 
 def run_query(sql_query):
@@ -152,7 +179,12 @@ if st.button("Ask"):
 
             df = pd.DataFrame(rows, columns=columns)
 
-            st.write("Results:")
+            if len(df) > 0:
+                with st.spinner("Interpreting results..."):
+                    answer = interpret_results(question, df)
+                st.markdown(f"### Answer\n{answer}")
+
+            st.write("Data:")
             st.dataframe(df)
 
             if len(df) > 1:

@@ -29,16 +29,23 @@ df_daily = df_pivoted \
     .withColumnRenamed("date_clean", "date") \
     .withColumnRenamed("TMAX", "temperature_max_f") \
     .withColumnRenamed("TMIN", "temperature_min_f") \
-    .withColumnRenamed("TAVG", "temperature_avg_f") \
+    .withColumnRenamed("TAVG", "temperature_avg_f_reported") \
     .withColumnRenamed("PRCP", "precipitation_inches") \
     .withColumnRenamed("AWND", "wind_speed_avg_mph") \
     .withColumnRenamed("SNOW", "snowfall_inches") \
     .withColumn("temperature_max_f", col("temperature_max_f").cast("decimal(10,2)")) \
     .withColumn("temperature_min_f", col("temperature_min_f").cast("decimal(10,2)")) \
-    .withColumn("temperature_avg_f", col("temperature_avg_f").cast("decimal(10,2)")) \
+    .withColumn("temperature_avg_f_reported", col("temperature_avg_f_reported").cast("decimal(10,2)")) \
     .withColumn("precipitation_inches", col("precipitation_inches").cast("decimal(10,2)")) \
     .withColumn("wind_speed_avg_mph", col("wind_speed_avg_mph").cast("decimal(10,2)")) \
     .withColumn("snowfall_inches", col("snowfall_inches").cast("decimal(10,2)")) \
+    .withColumn(
+        "temperature_avg_f",
+        coalesce(
+            col("temperature_avg_f_reported"),
+            ((col("temperature_max_f") + col("temperature_min_f")) / 2).cast("decimal(10,2)")
+        )
+    ) \
     .withColumn("transformed_at", current_timestamp())
 
 print("=== Daily Silver ===")
