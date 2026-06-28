@@ -8,11 +8,7 @@ Underneath it, a custom data pipeline ingests and transforms the data through a 
 
 ## Architecture
 
-```
-EIA API ─┐
-NOAA API ─┼─→ Bronze (raw) → Silver (cleaned) → Gold (joined, business-ready) → Text-to-SQL Agent
-          ┘
-```
+![Architecture Diagram](images/Archiecture_Image.png)
 
 **Bronze layer** — raw data ingested as is from three sources:
 - **EIA** electricity retail prices (all sectors, monthly, 2020–2026, all states).
