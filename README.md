@@ -1,5 +1,7 @@
 # Energy Intelligence Pipeline
 
+[![Watch the demo](path/to/thumbnail.png)](your-video-link-here)
+
 An AI powered energy assistant built for non technical users to explore electricity pricing, weather, and power generation across all 50 U.S. states just by asking plain English questions.
 
 Ask something like *"Is there a correlation between average temperature and residential electricity prices in 2023?"* and the agent writes the SQL code to query the data, runs it against the data, calculates the actual answer, explains it in plain language, and decides on its own whether a table, line chart, bar chart, or scatter plot best fits the question.
