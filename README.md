@@ -1,6 +1,6 @@
 # Energy Intelligence Pipeline
 
-[![Watch the demo](path/to/thumbnail.png)](your-video-link-here)
+[![Watch the demo](path/to/thumbnail.png)](https://youtu.be/OdvKgNdEvkg)
 
 An AI powered energy assistant built for non technical users to explore electricity pricing, weather, and power generation across all 50 U.S. states just by asking plain English questions.
 
